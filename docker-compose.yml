@@ -2,9 +2,10 @@ version: "3.3"
 
 networks:
     devOps:
-        driver: bridge
-        config: 
-            - subnet:13.12.0.0/24
+        ipam: 
+            driver: bridge
+            config: 
+                - subnet:13.12.0.0/24
 
 services:
     # Proxy de redirection des différents services
@@ -18,7 +19,7 @@ services:
             - 8001:8001
         networks: 
             - devOps
-    # BDD du projets
+    # BDD du projet
     db-postgres:
         image: postgres:13.3        
         container_name: db-postgres

@@ -5,7 +5,7 @@ Ceci est une infra devops integrant un gateway et un ensemble de services
 * Docker-compose 
 * VSCODE
 * Ansible
-## To launch project
+## Lancer le projet
 Dans un terminal de commandes
 ```shell
 docker compose up -d
