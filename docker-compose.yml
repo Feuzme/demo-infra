@@ -1,36 +1,53 @@
+#Infra DevOps
 version: "3.3"
 
 networks:
-    devops_net:
+    kong-net:
         ipam:
           driver: default # accès vers internet par défaut. (none, host, bridge)
           config:
             - subnet: 10.12.0.0/24
-  
 
 services:
     # Proxy de redirection des différents services
     #   => premet de mettre plusieur serveurs derrière une seule URL
-    kong:
+    gateway:
         container_name: kong
+        hostname: gateway.com
         image: kong:2.4.1-ubuntu
-        ports: 
-            - 443:8443
+        restart: unless-stopped 
+        depends_on: db-postgres
+        environment: 
+            KONG_PG_HOST: kong.bdd
+            KONG_PG_USER: konguser
+            KONG_PG_PASSWORD: kongpwd
+            KONG_PROXY_LISTEN: 0.0.0.0:8000
+            KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
+            KONG_ADMIN_LISTEN: 0.0.0.0:8001
+
+        ports: # port_proxy:port_application
+            - 443:8443 # navigateur => 80 => proxy => 8080 => kong 
             - 80:8000
             - 8001:8001
+            - 8444:8444
         networks: 
-            - devops_net
+            - kong-net
+
     # BDD du projet
     db-postgres:
-        image: postgres:13.3        
+        image: postgres:9.6   
+        hostname: kong.bdd     
         container_name: db-postgres
         restart: unless-stopped
-        # COnfiguration des identifiant de la BDD
+        # Configuration des identifiant de la BDD
         environment:
-            POSTGRES_USER: root 
-            POSTGRES_PASSWORD: root
+            POSTGRES_DB: kong
+            POSTGRES_USER: konguser
+            POSTGRES_PASSWORD: kongpwd
         networks: 
-            - devops_net
+            - kong-net
+        ports: 
+            - 5432:5432
 
     # UI lègère de gestion de BDD
     adminer:        
@@ -38,6 +55,6 @@ services:
         container_name: adminer
         restart: unless-stopped
         networks: 
-            - devops_net
+            - kong-net
         ports:
             - 8080:8080
