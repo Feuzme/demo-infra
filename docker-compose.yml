@@ -1,60 +1,114 @@
-#Infra DevOps
-version: "3.3"
+version: "3.5"
 
-networks:
-    kong-net:
-        ipam:
-          driver: default # accès vers internet par défaut. (none, host, bridge)
-          config:
-            - subnet: 10.12.0.0/24
+networks: # on fabrique des réseaux ()
+  kong-net: # nom du réseau. nous pouvons le choisir 
+    ipam:
+      driver: default # par "default", c'est bridge : donc accès à internet
+      config:
+        - subnet: 10.12.0.0/16 # masque de sous réseau de "kong-net"
 
 services:
-    # Proxy de redirection des différents services
-    #   => premet de mettre plusieur serveurs derrière une seule URL
-    gateway:
-        container_name: kong
-        hostname: gateway.com
-        image: kong:2.4.1-ubuntu
-        restart: unless-stopped 
-        depends_on: db-postgres
-        environment: 
-            KONG_PG_HOST: kong.bdd
-            KONG_PG_USER: konguser
-            KONG_PG_PASSWORD: kongpwd
-            KONG_PROXY_LISTEN: 0.0.0.0:8000
-            KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
-            KONG_ADMIN_LISTEN: 0.0.0.0:8001
+  #######################################
+  # Kong: The API Gateway
+  #######################################
+  kong:
+    image: kong:2.4.1-ubuntu
+    restart: unless-stopped # docker le redémarre sauf si l'admin décide de l'arrêter
+    networks:
+      - kong-net # on connecte le conteneur "kong" au réseau "kong-net"
+        # ipv4_address: 10.12.0.2 # nous choisissons manuellement l'ip (mauvaise pratique)
+    hostname: gateway.kg # on choisit le DNS de ce serveur (plutôt que le nom du service "kong")
+    depends_on: # permet de s'assurer de la présence d'autres services 
+      # - kong-migration
+      - kong-database # il va être lancé avant le service "kong"
+    environment:
+      KONG_PG_HOST: kong.db # ip ou dns de la bdd
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: password
 
-        ports: # port_proxy:port_application
-            - 443:8443 # navigateur => 80 => proxy => 8080 => kong 
-            - 80:8000
-            - 8001:8001
-            - 8444:8444
-        networks: 
-            - kong-net
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_PROXY_LISTEN_SSL: 0.0.0.0:8443
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    ports: # configuration du ingress (proxy qui fait le routage)
+      - "8001:8001"
+      - "80:8000"
 
-    # BDD du projet
-    db-postgres:
-        image: postgres:9.6   
-        hostname: kong.bdd     
-        container_name: db-postgres
-        restart: unless-stopped
-        # Configuration des identifiant de la BDD
-        environment:
-            POSTGRES_DB: kong
-            POSTGRES_USER: konguser
-            POSTGRES_PASSWORD: kongpwd
-        networks: 
-            - kong-net
-        ports: 
-            - 5432:5432
+  #######################################
+  # Postgres: base de données pour kong
+  #######################################
+  kong-database:
+    image: postgres:9.6
+    hostname: kong.db
+    restart: unless-stopped 
+    networks:
+      - kong-net
+    environment:
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: kong
+    ports:
+      - "5432:5432"
+    healthcheck: # docker va exécuter la commande ci-dessous toutes les 5s pour vérifier que Kong marche bien
+      test: ["CMD", "pg_isready", "-U", "kong"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-    # UI lègère de gestion de BDD
-    adminer:        
-        image: adminer
-        container_name: adminer
-        restart: unless-stopped
-        networks: 
-            - kong-net
-        ports:
-            - 8080:8080
+
+  #######################################
+  # Kong database migration
+  #######################################
+  kong-migration:
+    image: kong:2.4.1-ubuntu
+    command: "kong migrations bootstrap"
+    networks:
+      - kong-net
+    # on-failure : relance l'application que si elle plante 
+    # généralement pour les applications qui doivent exécuter une seule tâche
+    restart: on-failure 
+    environment:
+      KONG_PG_HOST: kong.db # ip ou dns de la bdd PostgreSQL
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: password
+    # links permet de lier un ou plusieurs conteneurs entre eux, comme s'ils étaient empaqueter ensemble
+    links:
+      - kong-database
+    depends_on:
+      - kong-database
+
+  #######################################
+  # konga-prepare : permet d'ajouter la configuration à la bdd
+  # pour permettre l'installation de l'UI (interface utilisateur)
+  #######################################
+  konga-prepare:
+    image: pantsel/konga:0.14.9
+    # cette commande permet de créer la base de données "konga_db" pour l'interface graphique "Konga"
+    command: "-c prepare -a postgres -u postgresql://kong:password@kong.db:5432/konga_db"
+    networks:
+      - kong-net
+    restart: on-failure
+    links:
+      - kong-database
+    depends_on:
+      - kong-database
+
+  #######################################
+  # Konga: Kong GUI : Graphical User Interface/interface graphique pour les utilisateurs
+  #######################################
+  konga:
+    image: pantsel/konga:0.14.9
+    restart: unless-stopped
+    networks:
+        - kong-net
+    environment:
+      DB_ADAPTER: postgres
+      DB_HOST: kong.db
+      DB_USER: kong
+      DB_DATABASE: konga_db
+      DB_PASSWORD: password
+      TOKEN_SECRET: km1GUr4RkcQD7DewhJPNXrCuZwcKmqjb
+      NODE_ENV: production
+    depends_on:
+      - kong-database
+    ports:
+      - "1337:1337"
