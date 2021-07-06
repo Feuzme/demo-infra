@@ -1,0 +1,40 @@
+version: "3.3"
+
+networks:
+    devOps:
+        driver: bridge
+        config: 
+            - subnet:13.12.0.0/24
+
+services:
+    # Proxy de redirection des différents services
+    #   => premet de mettre plusieur serveurs derrière une seule URL
+    kong:
+        container_name: kong
+        image: kong:2.4.1-ubuntu
+        ports: 
+            - 443:8443
+            - 80:8000
+            - 8001:8001
+        networks: 
+            - devOps
+    # BDD du projets
+    db-postgres:
+        image: postgres:13.3        
+        container_name: db-postgres
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: root 
+            POSTGRES_PASSWORD: root
+        networks: 
+            - devOps
+
+    # UI lègère de gestion de BDD
+    adminer:        
+        image: adminer
+        container_name: adminer
+        restart: unless-stopped
+        networks: 
+            - devOps
+        ports:
+            - 8080:8080
